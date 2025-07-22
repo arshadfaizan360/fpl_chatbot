@@ -15,9 +15,12 @@ FPL_API_BASE_URL = "https://fantasy.premierleague.com/api/"
 GEMINI_MODEL_NAME = "gemini-2.0-flash" 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-# NEW: Add a browser-like User-Agent header to all FPL API requests
+# UPDATED: Added more headers to better mimic a real browser request
 FPL_REQUEST_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Referer': 'https://fantasy.premierleague.com/my-team'
 }
 
 # --- Sanity Check for API Token ---
@@ -32,7 +35,6 @@ else:
 def get_fpl_bootstrap_data():
     """Fetches the main bootstrap data from the FPL API."""
     try:
-        # UPDATED: Added headers to the request
         response = requests.get(f"{FPL_API_BASE_URL}bootstrap-static/", headers=FPL_REQUEST_HEADERS)
         response.raise_for_status()
         return response.json()
