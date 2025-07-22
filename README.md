@@ -9,8 +9,8 @@ This is a simple, standalone application that uses AI to give you personalised a
 Follow these simple steps to get the chatbot running on your computer. No technical knowledge is needed!
 
 ### Step 1: Download and Run the Application
-1.  Download the application file for your operating system (e.g., `fpl-chatbot.app` for Mac or `fpl-chatbot.exe` for Windows).
-2.  On Mac, you may need to drag the `fpl-chatbot.app` file into your Applications folder.
+1.  Download the application file for your operating system (e.g., `FPL-Chatbot-Mac.zip` for Mac or `fpl-chatbot.exe` for Windows).
+2.  **On Mac:** Unzip the downloaded file. This will reveal the `FPL Chatbot.app` file. Drag this into your Applications folder.
 3.  Double-click the application to run it. A chat window will open.
 
 ### Step 2: First-Time Setup
@@ -51,5 +51,18 @@ Follow these steps to package the script into a distributable application.
         pyinstaller --windowed --name "FPL Chatbot" fpl_chatbot/main.py
         ```
 
-2.  This command will create a `dist` folder. Inside this folder, you will find the final, standalone application bundle (e.g., `FPL Chatbot.app`). This is the file you can share with your users.
+2.  This command will create a `dist` folder. Inside this folder, you will find the final, standalone application bundle (e.g., `FPL Chatbot.app`).
+
+### Step 3: Prepare for Distribution (Mac)
+An `.app` bundle is a directory, not a single file. To share it, you must compress it first.
+
+1.  Navigate into the `dist` folder in your terminal:
+    ```bash
+    cd dist
+    ```
+2.  Compress the application into a `.zip` file:
+    ```bash
+    zip -r "FPL-Chatbot-Mac.zip" "FPL Chatbot.app"
+    ```
+3.  The `FPL-Chatbot-Mac.zip` file is the one you can share with your users or upload to a GitHub release.
 
