@@ -1,68 +1,75 @@
 # FPL AI Assistant Chatbot
 
-This is a simple, standalone application that uses AI to give you personalised advice about your Fantasy Premier League (FPL) team.
+This is a standalone application that uses AI to give you personalised advice about your Fantasy Premier League (FPL) team. This project supports building for both Desktop (Mac/Windows) and Android.
 
 ---
 
 ## For the User: How to Install and Run
 
-Follow these simple steps to get the chatbot running on your computer. No technical knowledge is needed!
-
-### Step 1: Download and Run the Application
-1.  Download the application file for your operating system (e.g., `FPL-Chatbot-Mac.zip` for Mac or `fpl-chatbot.exe` for Windows).
-2.  **On Mac:** Unzip the downloaded file. This will reveal the `FPL Chatbot.app` file. Drag this into your Applications folder.
-3.  Double-click the application to run it. A chat window will open.
-
-### Step 2: First-Time Setup
-The first time you run the app, it will ask for two pieces of information in popup windows:
-
-1.  **Your FPL User ID:** You can find this in the URL of the 'Points' page on the FPL website.
-2.  **Your Google API Key:** You can get a free key from [Google AI Studio](https://aistudio.google.com/).
-
-The application will save these details securely on your computer, so you will only need to enter them once.
-
-### Step 3: Start Chatting!
-That's it! The assistant is now ready. Type your questions into the input box and press 'Send'.
+1.  **Download the Application:** Download the correct file for your operating system (`.app` for Mac, `.exe` for Windows, or `.apk` for Android).
+2.  **Run the Application:** Install and run the application. A chat window will open.
+3.  **First-Time Setup:** The first time you run the app, it will ask for your FPL User ID and your Google API Key. The application will save these details securely, so you only need to enter them once.
+4.  **Start Chatting!** The assistant is now ready.
 
 ---
 
 ## For the Developer: How to Build the Application
 
-Follow these steps to package the script into a distributable application.
+This project has two separate frontends: one for desktop and one for Android.
 
-### Step 1: Install Dependencies
-1.  Open your computer's Terminal (on Mac) or Command Prompt (on Windows).
-2.  Navigate into the main project folder using the `cd` command.
-3.  Run the following command to install the necessary tools:
+### Step 1: Install All Dependencies
+1.  Open your Terminal or Command Prompt.
+2.  Navigate into the main project folder.
+3.  Run the command:
     ```bash
     pip install -r requirements.txt
     ```
 
-### Step 2: Build the Application
-1.  In the same terminal window, run the following command to build the application.
+### Step 2: Build the Desktop Application (Mac/Windows)
+This uses the `desktop_app.py` file and requires the `backend.py` and `constants.py` files.
 
-    * **For Windows (to hide the console window):**
+1.  **Clean Project Files (Mac Only):** Before building, run the following command in your terminal from the root of your project folder. This removes problematic metadata that causes signing errors.
+    ```bash
+    xattr -cr .
+    ```
+
+2.  **Run the Build Command:** In your terminal, run the command for your operating system. The `--add-data` flag is crucial to include the backend and constants files, and `--hidden-import` forces PyInstaller to include packages it might miss.
+
+    * **For Windows:**
         ```bash
-        pyinstaller --windowed --name fpl-chatbot fpl_chatbot/main.py
+        pyinstaller --windowed --name "FPL Chatbot" --add-data "fpl_chatbot\backend.py;." --add-data "fpl_chatbot\constants.py;." --hidden-import=requests --hidden-import=certifi fpl_chatbot\desktop_app.py
+        ```
+    * **For Mac:**
+        ```bash
+        pyinstaller --windowed --name "FPL Chatbot" --add-data "fpl_chatbot/backend.py:." --add-data "fpl_chatbot/constants.py:." --hidden-import=requests --hidden-import=certifi fpl_chatbot/desktop_app.py
         ```
 
-    * **For Mac (using the recommended directory mode):**
-        ```bash
-        pyinstaller --windowed --name "FPL Chatbot" fpl_chatbot/main.py
-        ```
+3.  The final application will be in the `dist` folder.
 
-2.  This command will create a `dist` folder. Inside this folder, you will find the final, standalone application bundle (e.g., `FPL Chatbot.app`).
+### Step 3: Build the Android Application (APK)
+This uses the `android_app.py` file and requires a tool called `buildozer`.
 
-### Step 3: Prepare for Distribution (Mac)
-An `.app` bundle is a directory, not a single file. To share it, you must compress it first.
-
-1.  Navigate into the `dist` folder in your terminal:
+1.  **Install Buildozer:**
     ```bash
-    cd dist
+    pip install buildozer
     ```
-2.  Compress the application into a `.zip` file:
+2.  **Initialise Buildozer:** In your project's root directory, run:
     ```bash
-    zip -r "FPL-Chatbot-Mac.zip" "FPL Chatbot.app"
+    buildozer init
     ```
-3.  The `FPL-Chatbot-Mac.zip` file is the one you can share with your users or upload to a GitHub release.
+    This creates a `buildozer.spec` file.
+
+3.  **Configure `buildozer.spec`:**
+    * Open `buildozer.spec`.
+    * Find the line `title = Your application name` and change it to `title = FPL Chatbot`.
+    * Find `source.dir = .` and change it to `source.dir = fpl_chatbot`.
+    * Find `source.main_py = main.py` and change it to `source.main_py = android_app.py`.
+    * Find `requirements = python3,kivy` and change it to `requirements = python3,kivy,requests,certifi`.
+    * Add the `INTERNET` permission: `android.permissions = INTERNET`.
+
+4.  **Run the Build:**
+    ```bash
+    buildozer -v android debug
+    ```
+    The final `.apk` file will be in the `bin` directory.
 
