@@ -15,6 +15,11 @@ FPL_API_BASE_URL = "https://fantasy.premierleague.com/api/"
 GEMINI_MODEL_NAME = "gemini-2.0-flash" 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
+# NEW: Add a browser-like User-Agent header to all FPL API requests
+FPL_REQUEST_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36'
+}
+
 # --- Sanity Check for API Token ---
 if GOOGLE_API_KEY:
     print("✅ Google API Key loaded successfully from .env file.")
@@ -27,7 +32,8 @@ else:
 def get_fpl_bootstrap_data():
     """Fetches the main bootstrap data from the FPL API."""
     try:
-        response = requests.get(f"{FPL_API_BASE_URL}bootstrap-static/")
+        # UPDATED: Added headers to the request
+        response = requests.get(f"{FPL_API_BASE_URL}bootstrap-static/", headers=FPL_REQUEST_HEADERS)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
@@ -46,9 +52,24 @@ def get_current_gameweek(bootstrap_data):
     return None
 
 def get_fpl_team_data(user_id):
-    """Fetches FPL team data for a given user_id. This is our primary 'tool'."""
+    """Fetches FPL team data for a given user_id, with improved pre-season error handling."""
     if not user_id:
         return {"error": "FPL User ID was not provided."}
+
+    # --- NEW DIAGNOSTIC STEP ---
+    # First, check if the user ID is valid by fetching general info.
+    try:
+        info_url = f"{FPL_API_BASE_URL}entry/{user_id}/"
+        info_response = requests.get(info_url, headers=FPL_REQUEST_HEADERS)
+        info_response.raise_for_status()
+        user_info = info_response.json()
+        print(f"✅ Successfully fetched general info for team: {user_info.get('name')}")
+    except requests.exceptions.HTTPError as http_err:
+        if http_err.response.status_code == 404:
+            return {"error": "User ID Not Found. Please double-check the FPL User ID you entered as it appears to be incorrect."}
+        return {"error": f"An HTTP error occurred while verifying your User ID: {http_err}"}
+    except Exception as e:
+        return {"error": f"An unexpected error occurred while verifying your User ID: {e}"}
 
     bootstrap_data = get_fpl_bootstrap_data()
     if "error" in bootstrap_data:
@@ -58,16 +79,12 @@ def get_fpl_team_data(user_id):
     if not current_gameweek:
         return {"error": "Could not determine the current or next gameweek."}
 
+    # Now, try to get the detailed picks for the gameweek.
     try:
         picks_url = f"{FPL_API_BASE_URL}entry/{user_id}/event/{current_gameweek}/picks/"
-        picks_response = requests.get(picks_url)
+        picks_response = requests.get(picks_url, headers=FPL_REQUEST_HEADERS)
         picks_response.raise_for_status()
         team_picks = picks_response.json()
-
-        info_url = f"{FPL_API_BASE_URL}entry/{user_id}/"
-        info_response = requests.get(info_url)
-        info_response.raise_for_status()
-        user_info = info_response.json()
 
         player_map = {player['id']: player['web_name'] for player in bootstrap_data['elements']}
         
@@ -86,10 +103,11 @@ def get_fpl_team_data(user_id):
 
     except requests.exceptions.HTTPError as http_err:
         if http_err.response.status_code == 404:
-            return {"error": "Team Not Found. Please ensure your User ID is correct and you have saved your initial squad on the FPL website."}
-        return {"error": f"An HTTP error occurred: {http_err}"}
+            # If we get here, the User ID was valid, but the picks for GW1 are not available.
+            return {"error": "Your User ID is correct, but your detailed team data for Gameweek 1 is not yet available via the API. This is common during pre-season. Please try again closer to the season's start date."}
+        return {"error": f"An HTTP error occurred while fetching team picks: {http_err}"}
     except Exception as e:
-        return {"error": f"An unexpected error occurred: {e}"}
+        return {"error": f"An unexpected error occurred while fetching team picks: {e}"}
 
 # --- AI Interaction ---
 
