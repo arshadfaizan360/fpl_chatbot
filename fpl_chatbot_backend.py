@@ -12,7 +12,6 @@ load_dotenv()
 
 # --- Constants ---
 FPL_API_BASE_URL = "https://fantasy.premierleague.com/api/"
-# Switched to Google Gemini Pro model
 GEMINI_MODEL_NAME = "gemini-2.0-flash" 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
@@ -94,9 +93,9 @@ def get_fpl_team_data(user_id):
 
 # --- AI Interaction ---
 
-def ask_ai_assistant(full_prompt):
+def ask_ai_assistant(history):
     """
-    Sends a prompt to the Google Gemini API.
+    Sends a conversation history to the Google Gemini API.
     """
     if not GOOGLE_API_KEY:
         return "GOOGLE_API_KEY not found in environment variables. Please check your .env file."
@@ -104,7 +103,8 @@ def ask_ai_assistant(full_prompt):
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL_NAME}:generateContent?key={GOOGLE_API_KEY}"
     
     headers = {"Content-Type": "application/json"}
-    payload = {"contents": [{"parts": [{"text": full_prompt}]}]}
+    # The Gemini API expects a specific format for conversation history
+    payload = {"contents": history}
     data = json.dumps(payload).encode("utf-8")
     
     req = urllib.request.Request(api_url, data=data, headers=headers)
@@ -114,15 +114,13 @@ def ask_ai_assistant(full_prompt):
             response_body = response.read().decode("utf-8")
             json_response = json.loads(response_body)
             
-            # Navigate the Gemini API's response structure
             if "candidates" in json_response and len(json_response["candidates"]) > 0:
                 content = json_response["candidates"][0].get("content", {})
                 if "parts" in content and len(content["parts"]) > 0:
                     return content["parts"][0].get("text", "").strip()
             
-            # Handle cases where the response is unexpected or blocked
             print(f"--- GOOGLE API UNEXPECTED RESPONSE ---\n{json_response}\n------------------------------------")
-            return f"Error: Received an unexpected or empty response from the AI assistant."
+            return "Error: Received an unexpected or empty response from the AI assistant."
 
     except urllib.error.HTTPError as e:
         error_content = e.read().decode("utf-8")
@@ -140,46 +138,51 @@ def ask_ai_assistant(full_prompt):
 
 # --- Main Handler ---
 
-def handle_query(user_query, user_id):
+def handle_query(user_query, user_id, history):
     """
-    Processes a natural language query using a two-step LLM process.
+    Processes a query and its conversation history.
     """
     print(f"Received query: '{user_query}' for user_id: {user_id}")
 
-    router_prompt = (
-        "You are an AI assistant that determines if a user's request requires accessing their Fantasy Premier League (FPL) team data. "
-        "Based on the following query, do you need to see the user's current team, budget, and players to give a helpful answer? "
-        "Answer with only the word 'yes' or 'no'.\n\n"
-        f"User Query: '{user_query}'"
-    )
+    # Step 1: Use the AI to decide if the FPL data tool is needed.
+    router_history = [
+        {"role": "user", "parts": [{"text": "You are an AI assistant that determines if a user's request requires accessing their Fantasy Premier League (FPL) team data. Based on the following query, do you need to see the user's current team, budget, and players to give a helpful answer? Answer with only the word 'yes' or 'no'."}]},
+        {"role": "model", "parts": [{"text": "Okay, I understand. I will answer with only 'yes' or 'no'."}]},
+        {"role": "user", "parts": [{"text": f"User Query: '{user_query}'"}]}
+    ]
     
-    decision = ask_ai_assistant(router_prompt).lower().strip()
+    decision = ask_ai_assistant(router_history).lower().strip()
     print(f"Decision from AI router: '{decision}'")
 
+    # Append the user's actual query to the main history for the next step
+    history.append({"role": "user", "parts": [{"text": user_query}]})
+
+    # Step 2: Act on the decision.
     if 'yes' in decision and 'no' not in decision:
         print("Fetching FPL data based on AI decision...")
         team_data = get_fpl_team_data(user_id)
         if isinstance(team_data, dict) and "error" in team_data:
             return team_data["error"]
 
-        responder_prompt = (
-            "You are an expert Fantasy Premier League (FPL) assistant. Your responses must be in British English. "
-            "Analyse the following team data and answer the user's request concisely and helpfully.\n\n"
-            f"Team Data:\n{team_data}\n\n"
-            f"User Request: {user_query}"
-        )
-        return ask_ai_assistant(responder_prompt)
+        # Prepend the system prompt and the FPL data to the history
+        responder_history = [
+            {"role": "user", "parts": [{"text": "You are an expert FPL assistant. Your responses must be in British English. Analyse the provided team data to answer the user's questions concisely and helpfully."}]},
+            {"role": "model", "parts": [{"text": "Understood. I will act as an FPL expert and respond in British English."}]},
+            {"role": "user", "parts": [{"text": f"Here is the user's team data:\n{team_data}"}]},
+            {"role": "model", "parts": [{"text": "Thank you. I have the team data."}]}
+        ] + history
+        
+        return ask_ai_assistant(responder_history)
     
     else:
         print("Handling as general conversation based on AI decision...")
-        conversational_prompt = (
-            "You are a friendly and helpful FPL (Fantasy Premier League) assistant. Your responses must be in British English. "
-            "Answer the following user query conversationally. Keep the response brief and engaging. "
-            "If asked about something other than FPL, politely steer the conversation back to fantasy football (the proper kind).\n\n"
-            f"User: {user_query}\n"
-            "Assistant:"
-        )
-        return ask_ai_assistant(conversational_prompt)
+        # Prepend a simpler conversational prompt to the history
+        conversational_history = [
+            {"role": "user", "parts": [{"text": "You are a friendly and helpful FPL (Fantasy Premier League) assistant. Your responses must be in British English. Answer the user's query conversationally. Keep the response brief and engaging."}]},
+            {"role": "model", "parts": [{"text": "Right then, I'll be a friendly FPL assistant and reply in British English."}]}
+        ] + history
+        
+        return ask_ai_assistant(conversational_history)
 
 # --- Flask Web Server ---
 app = Flask(__name__)
@@ -191,11 +194,12 @@ def ask():
     data = request.json
     user_query = data.get('query')
     user_id = data.get('userId')
+    history = data.get('history', []) # Receive the history
 
     if not user_query or not user_id:
         return jsonify({"error": "Missing 'query' or 'userId' in request"}), 400
 
-    response_text = handle_query(user_query, user_id)
+    response_text = handle_query(user_query, user_id, history)
     return jsonify({"response": response_text})
 
 if __name__ == '__main__':

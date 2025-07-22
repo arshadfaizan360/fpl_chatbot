@@ -85,6 +85,8 @@
         const typingIndicator = document.getElementById('typing-indicator');
 
         let fplUserId = null;
+        // NEW: Array to store the conversation history
+        let chatHistory = [];
 
         // --- FPL User ID Handling ---
         const showModal = () => modalOverlay.classList.remove('hidden');
@@ -107,11 +109,12 @@
         });
 
         changeIdBtn.addEventListener('click', () => {
+            // Reset history when changing ID
+            chatHistory = [];
             fplIdInput.value = fplUserId || '';
             showModal();
         });
 
-        // Check for saved ID on page load
         document.addEventListener('DOMContentLoaded', () => {
             const savedId = localStorage.getItem('fplUserId');
             if (savedId) {
@@ -122,18 +125,18 @@
         });
 
         // --- Chat Logic ---
-        const getBotResponse = async (userMessage, userId) => {
+        const getBotResponse = async (userMessage, userId, history) => {
             if (!userId) {
                 return "Please set your FPL User ID first by clicking the 'Change ID' button.";
             }
 
             try {
-                // IMPORTANT: Replace with your public Render URL when deployed
-                const apiUrl = 'https://fpl-chatbot.onrender.com/ask'; 
+                const apiUrl = 'https://fpl-chatbot-backend.onrender.com/ask'; // Use your actual Render URL
                 const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query: userMessage, userId: userId }),
+                    // UPDATED: Send the history along with the query
+                    body: JSON.stringify({ query: userMessage, userId: userId, history: history }),
                 });
 
                 if (!response.ok) {
@@ -173,13 +176,18 @@
             if (!userMessage || !fplUserId) return;
 
             appendMessage(userMessage, 'user');
+            // Add user message to history in the format Gemini expects
+            chatHistory.push({ role: "user", parts: [{ text: userMessage }] });
+            
             chatInput.value = '';
             typingIndicator.classList.remove('hidden');
 
-            const botResponse = await getBotResponse(userMessage, fplUserId);
+            const botResponse = await getBotResponse(userMessage, fplUserId, chatHistory);
             
             typingIndicator.classList.add('hidden');
             appendMessage(botResponse, 'bot');
+            // Add bot response to history
+            chatHistory.push({ role: "model", parts: [{ text: botResponse }] });
         });
     </script>
 </body>
