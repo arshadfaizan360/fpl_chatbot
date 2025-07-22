@@ -22,3 +22,9 @@ env.bak/
 
 # macOS
 .DS_Store
+
+build/
+fpl-chatbot.spec
+dist/
+FPL Chatbot.spec
+FPL Chatbot.app/

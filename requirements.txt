@@ -1,5 +1,3 @@
 requests
-python-dotenv
-Flask
-Flask-Cors
-gunicorn
+customtkinter
+pyinstaller
