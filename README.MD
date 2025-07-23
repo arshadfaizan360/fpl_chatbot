@@ -49,6 +49,40 @@ This uses the `desktop_app.py` file and requires the `backend.py` and `constants
 ### Step 3: Build the Android Application (APK)
 This uses the `android_app.py` file and requires a tool called `buildozer`.
 
+#### **Android Build Prerequisites (macOS)**
+Before your first build, you must install the required dependencies using Homebrew.
+
+1.  **Install Build Tools:** Open your terminal and run the following command. This will install all the necessary command-line tools for the build process.
+    ```bash
+    brew install autoconf automake libtool pkg-config cmake openssl@1.1
+    ```
+2.  **Install a Compatible Java Development Kit (JDK):** Buildozer now requires JDK 17. Run this command to install it:
+    ```bash
+    brew install openjdk@17
+    ```
+3.  **Set the `JAVA_HOME` Path:** You need to tell your system where to find this new JDK. Run the following command in your terminal:
+    ```bash
+    echo 'export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"' >> ~/.zshrc
+    ```
+4.  **Load the New Configuration:** To apply the change to your current terminal session, run this command:
+    ```bash
+    source ~/.zshrc
+    ```
+5.  **Verification:** Now, run `echo $JAVA_HOME`. It should print the correct path. If it does, you are ready to build.
+
+#### **Troubleshooting the `source` command**
+If you see an error like `not an identifier` after running the `source ~/.zshrc` command, it means your `.zshrc` file has a syntax error. To fix this safely, run the following two commands in your terminal:
+1.  First, back up your old file:
+    ```bash
+    mv ~/.zshrc ~/.zshrc.bak
+    ```
+2.  Then, create a new, clean `.zshrc` file with the correct command:
+    ```bash
+    echo 'export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"' >> ~/.zshrc
+    ```
+3.  Now, try running `source ~/.zshrc` again. It should work without any errors.
+
+#### **Buildozer Configuration and Build**
 1.  **Install Buildozer:**
     ```bash
     pip install buildozer
@@ -63,11 +97,22 @@ This uses the `android_app.py` file and requires a tool called `buildozer`.
     * Open `buildozer.spec`.
     * Find the line `title = Your application name` and change it to `title = FPL Chatbot`.
     * Find `source.dir = .` and change it to `source.dir = fpl_chatbot`.
-    * Find `source.main_py = main.py` and change it to `source.main_py = android_app.py`.
-    * Find `requirements = python3,kivy` and change it to `requirements = python3,kivy,requests,certifi`.
+    * **Add the following line directly below `source.dir`:**
+        ```
+        source.main_py = android_app.py
+        ```
+    * Find the `requirements` line and change it to include all necessary build dependencies:
+        ```
+        requirements = python3,kivy,requests,certifi,cython,pyjnius
+        ```
     * Add the `INTERNET` permission: `android.permissions = INTERNET`.
+    * **Add the following line to use the latest development branch for Android dependencies:**
+        ```
+        p4a.branch = develop
+        ```
 
 4.  **Run the Build:**
+    This command now explicitly tells buildozer where to find the correct Java version, making it more reliable.
     ```bash
     buildozer -v android debug
     ```

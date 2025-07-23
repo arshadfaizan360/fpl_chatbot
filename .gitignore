@@ -30,3 +30,4 @@ FPL Chatbot.spec
 FPL Chatbot.app/
 FPL-Chatbot-Mac.zip
 buildozer.spec
+.buildozer/
