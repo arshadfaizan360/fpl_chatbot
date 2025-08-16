@@ -4,3 +4,4 @@ openai
 google-generativeai
 Pillow
 fpl
+gunicorn
