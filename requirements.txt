@@ -5,3 +5,4 @@ google-generativeai
 Pillow
 fpl
 gunicorn
+python-dotenv
