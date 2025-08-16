@@ -8,6 +8,7 @@ from PIL import Image
 import aiohttp
 from datetime import datetime
 import asyncio
+import random
 
 # --- Configuration ---
 
@@ -22,17 +23,17 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 async def get_fpl_data():
     """
-    Fetches comprehensive live data directly from the FPL API with retry logic.
+    Fetches comprehensive live data directly from the FPL API with a more robust retry logic.
     """
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
     }
     
     # Create a TCPConnector with SSL verification disabled.
     connector = aiohttp.TCPConnector(ssl=False)
     
     async with aiohttp.ClientSession(connector=connector, headers=headers) as session:
-        for attempt in range(3): # Retry up to 3 times
+        for attempt in range(4): # Retry up to 4 times
             try:
                 # Fetch bootstrap data directly
                 async with session.get("https://fantasy.premierleague.com/api/bootstrap-static/") as response:
@@ -73,10 +74,12 @@ async def get_fpl_data():
                     "current_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
             except aiohttp.ClientResponseError as e:
-                if e.status == 403 and attempt < 2:
-                    await asyncio.sleep(1) # Wait for 1 second before retrying
+                if e.status == 403 and attempt < 3:
+                    # Wait for a random, slightly longer delay before retrying
+                    wait_time = 1 + random.uniform(0.5, 1.5)
+                    await asyncio.sleep(wait_time) 
                     continue # Go to the next attempt
-                return {"error": f"An error occurred while fetching FPL data: {e}"}
+                return {"error": f"An error occurred while fetching FPL data after multiple retries: {e}"}
             except Exception as e:
                 return {"error": f"An unexpected error occurred: {e}"}
 
