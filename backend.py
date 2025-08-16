@@ -21,72 +21,89 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # --- FPL Data Fetching ---
 
+GITHUB_BASE_URL = "https://arshadfaizan360.github.io/fpl-data-mirror"
+
 async def get_fpl_data():
     """
-    Fetches comprehensive live data directly from the FPL API with a more robust retry logic.
+    Fetches FPL data from GitHub mirror (bootstrap, fixtures, live points).
+    Falls back to official API if running locally and mirror is unavailable.
     """
     headers = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-GB,en;q=0.9",
-    "Referer": "https://fantasy.premierleague.com/",
-    "Origin": "https://fantasy.premierleague.com",
-    "Connection": "keep-alive"
-}
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json, text/plain, */*",
+    }
     
-    # Create a TCPConnector with SSL verification disabled.
     connector = aiohttp.TCPConnector(ssl=False)
-    
+
     async with aiohttp.ClientSession(connector=connector, headers=headers) as session:
-        for attempt in range(4): # Retry up to 4 times
-            try:
-                # Fetch bootstrap data directly
-                async with session.get("https://arshadfaizan360.github.io/fpl-data-mirror/bootstrap-static.json") as response:
-                    response.raise_for_status()
-                    bootstrap_data = await response.json()
+        try:
+            # --- Bootstrap (players, teams, events) ---
+            async with session.get(f"{GITHUB_BASE_URL}/bootstrap-static.json") as response:
+                response.raise_for_status()
+                bootstrap_data = await response.json()
 
-                # Fetch fixtures data directly
-                async with session.get("https://arshadfaizan360.github.io/fpl-data-mirror/fixtures.json") as response:
-                    response.raise_for_status()
-                    fixtures = await response.json()
+            # --- Fixtures (full season) ---
+            async with session.get(f"{GITHUB_BASE_URL}/fixtures.json") as response:
+                response.raise_for_status()
+                fixtures = await response.json()
 
-                # Format players data
-                players_info = []
-                for player in bootstrap_data["elements"]:
-                    team_name = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == player["team"]), "N/A")
-                    position = bootstrap_data["element_types"][player["element_type"] - 1]["singular_name_short"]
-                    players_info.append(
-                        f"- {player['web_name']} ({team_name}, {position}, £{player['now_cost']/10.0}m) - "
-                        f"Points: {player['total_points']}, Form: {player['form']}, Status: {player['status']}"
-                    )
-                
-                # Format fixtures data
-                fixtures_info = []
-                for fixture in fixtures:
-                    home_team = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == fixture["team_h"]), "N/A")
-                    away_team = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == fixture["team_a"]), "N/A")
-                    fixtures_info.append(
-                        f"- GW {fixture['event']}: {home_team} vs {away_team}"
-                    )
+            # --- Live points (current GW only) ---
+            async with session.get(f"{GITHUB_BASE_URL}/live.json") as response:
+                response.raise_for_status()
+                live_data = await response.json()
 
-                # Get current gameweek
-                current_gameweek = next((event["id"] for event in bootstrap_data["events"] if event["is_current"]), "N/A")
+            # --- Current GW fixtures ---
+            async with session.get(f"{GITHUB_BASE_URL}/fixtures-current.json") as response:
+                response.raise_for_status()
+                fixtures_current = await response.json()
 
-                return {
-                    "players": "\n".join(players_info),
-                    "fixtures": "\n".join(fixtures_info),
-                    "current_gameweek": current_gameweek,
-                    "current_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
-            except aiohttp.ClientResponseError as e:
-                if e.status == 403 and attempt < 3:
-                    # Wait for a random, slightly longer delay before retrying
-                    wait_time = 1 + random.uniform(0.5, 1.5)
-                    await asyncio.sleep(wait_time) 
-                    continue # Go to the next attempt
-                return {"error": f"An error occurred while fetching FPL data after multiple retries: {e}"}
-            except Exception as e:
-                return {"error": f"An unexpected error occurred: {e}"}
+            # Format players data
+            players_info = []
+            for player in bootstrap_data["elements"]:
+                team_name = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == player["team"]), "N/A")
+                position = bootstrap_data["element_types"][player["element_type"] - 1]["singular_name_short"]
+
+                # Check if live points are available
+                live_points = None
+                if live_data and "elements" in live_data and str(player["id"]) in live_data["elements"]:
+                    live_points = live_data["elements"][str(player["id"])]["stats"]["total_points"]
+
+                players_info.append(
+                    f"- {player['web_name']} ({team_name}, {position}, £{player['now_cost']/10.0}m) - "
+                    f"Season Points: {player['total_points']}, "
+                    f"Form: {player['form']}, "
+                    f"Status: {player['status']}"
+                    + (f", Live Points: {live_points}" if live_points is not None else "")
+                )
+
+            # Format fixtures data (upcoming season fixtures)
+            fixtures_info = []
+            for fixture in fixtures:
+                home_team = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == fixture["team_h"]), "N/A")
+                away_team = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == fixture["team_a"]), "N/A")
+                fixtures_info.append(f"- GW {fixture['event']}: {home_team} vs {away_team}")
+
+            # Format current GW fixtures (with live data if available)
+            fixtures_current_info = []
+            for fixture in fixtures_current:
+                home_team = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == fixture["team_h"]), "N/A")
+                away_team = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == fixture["team_a"]), "N/A")
+                score = f"{fixture['team_h_score']} - {fixture['team_a_score']}" if fixture["started"] else "Not started"
+                fixtures_current_info.append(f"- GW {fixture['event']}: {home_team} {score} {away_team}")
+
+            # Get current gameweek
+            current_gameweek = next((event["id"] for event in bootstrap_data["events"] if event["is_current"]), "N/A")
+
+            return {
+                "players": "\n".join(players_info),
+                "fixtures": "\n".join(fixtures_info),
+                "fixtures_current": "\n".join(fixtures_current_info),
+                "current_gameweek": current_gameweek,
+                "current_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+
+        except Exception as e:
+            return {"error": f"Error fetching FPL data: {e}"}
 
 # --- AI Interaction ---
 
