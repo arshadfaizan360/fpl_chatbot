@@ -41,12 +41,12 @@ async def get_fpl_data():
         for attempt in range(4): # Retry up to 4 times
             try:
                 # Fetch bootstrap data directly
-                async with session.get("https://fantasy.premierleague.com/api/bootstrap-static/") as response:
+                async with session.get("https://arshadfaizan360.github.io/fpl-data-mirror/bootstrap-static.json") as response:
                     response.raise_for_status()
                     bootstrap_data = await response.json()
 
                 # Fetch fixtures data directly
-                async with session.get("https://fantasy.premierleague.com/api/fixtures/") as response:
+                async with session.get("https://arshadfaizan360.github.io/fpl-data-mirror/fixtures.json") as response:
                     response.raise_for_status()
                     fixtures = await response.json()
 
