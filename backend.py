@@ -23,11 +23,14 @@ async def get_fpl_data():
     """
     Fetches comprehensive live data directly from the FPL API.
     """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
+    }
     try:
         # Create a TCPConnector with SSL verification disabled to bypass
         # CERTIFICATE_VERIFY_FAILED errors in certain environments.
         connector = aiohttp.TCPConnector(ssl=False)
-        async with aiohttp.ClientSession(connector=connector) as session:
+        async with aiohttp.ClientSession(connector=connector, headers=headers) as session:
             # Fetch bootstrap data directly
             async with session.get("https://fantasy.premierleague.com/api/bootstrap-static/") as response:
                 response.raise_for_status()
@@ -64,7 +67,7 @@ async def get_fpl_data():
                 "players": "\n".join(players_info),
                 "fixtures": "\n".join(fixtures_info),
                 "current_gameweek": current_gameweek,
-                "current_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                "current_date": datetime.now().strftime("%Y-m-%d %H:%M:%S")
             }
     except Exception as e:
         return {"error": f"An error occurred while fetching FPL data: {e}"}
