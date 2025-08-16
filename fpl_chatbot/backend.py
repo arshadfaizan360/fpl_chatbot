@@ -1,128 +1,170 @@
 # fpl_chatbot/backend.py
 import os
-import requests
-import json
-import urllib.request
-from pathlib import Path
-import ssl
+import google.generativeai as genai
+from openai import AsyncOpenAI, AuthenticationError
+import base64
+from io import BytesIO
+from PIL import Image
+import aiohttp
+from datetime import datetime
 
-# --- Constants ---
-FPL_API_BASE_URL = "https://fantasy.premierleague.com/api/"
-GEMINI_MODEL_NAME = "gemini-2.0-flash" 
-CONFIG_FILE = Path.home() / ".fpl_chatbot_config.json"
+# --- Configuration ---
 
-# --- FPL Data Functions (Our "Tool") ---
-def get_fpl_team_data(user_id, headers):
-    """Fetches FPL team data for a given user_id."""
+# Set the AI provider: "OPENAI" or "GEMINI"
+AI_PROVIDER = "GEMINI" 
+
+# Load API keys from environment variables
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# --- FPL Data Fetching ---
+
+async def get_fpl_data():
+    """
+    Fetches comprehensive live data directly from the FPL API.
+    """
     try:
-        info_url = f"{FPL_API_BASE_URL}entry/{user_id}/"
-        info_response = requests.get(info_url, headers=headers)
-        info_response.raise_for_status()
-        user_info = info_response.json()
+        # Create a TCPConnector with SSL verification disabled to bypass
+        # CERTIFICATE_VERIFY_FAILED errors in certain environments.
+        connector = aiohttp.TCPConnector(ssl=False)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            # Fetch bootstrap data directly
+            async with session.get("https://fantasy.premierleague.com/api/bootstrap-static/") as response:
+                response.raise_for_status()
+                bootstrap_data = await response.json()
 
-        bootstrap_data_url = f"{FPL_API_BASE_URL}bootstrap-static/"
-        bootstrap_response = requests.get(bootstrap_data_url, headers=headers)
-        bootstrap_response.raise_for_status()
-        bootstrap_data = bootstrap_response.json()
+            # Fetch fixtures data directly
+            async with session.get("https://fantasy.premierleague.com/api/fixtures/") as response:
+                response.raise_for_status()
+                fixtures = await response.json()
 
-        current_gameweek = next((event['id'] for event in bootstrap_data['events'] if event.get('is_next')), 1)
+            # Format players data
+            players_info = []
+            for player in bootstrap_data["elements"]:
+                team_name = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == player["team"]), "N/A")
+                position = bootstrap_data["element_types"][player["element_type"] - 1]["singular_name_short"]
+                players_info.append(
+                    f"- {player['web_name']} ({team_name}, {position}, £{player['now_cost']/10.0}m) - "
+                    f"Points: {player['total_points']}, Form: {player['form']}, Status: {player['status']}"
+                )
+            
+            # Format fixtures data
+            fixtures_info = []
+            for fixture in fixtures:
+                home_team = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == fixture["team_h"]), "N/A")
+                away_team = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == fixture["team_a"]), "N/A")
+                fixtures_info.append(
+                    f"- GW {fixture['event']}: {home_team} vs {away_team}"
+                )
 
-        picks_url = f"{FPL_API_BASE_URL}entry/{user_id}/event/{current_gameweek}/picks/"
-        picks_response = requests.get(picks_url, headers=headers)
-        picks_response.raise_for_status()
-        team_picks = picks_response.json()
+            # Get current gameweek
+            current_gameweek = next((event["id"] for event in bootstrap_data["events"] if event["is_current"]), "N/A")
 
-        player_map = {player['id']: player['web_name'] for player in bootstrap_data['elements']}
-        
-        formatted_team = ["--- My FPL Squad ---"]
-        for pick in team_picks['picks']:
-            player_name = player_map.get(pick['element'], "Unknown")
-            position = "Starter" if pick['position'] <= 11 else "Bench"
-            captain_status = " (C)" if pick.get('is_captain') else " (VC)" if pick.get('is_vice_captain') else ""
-            formatted_team.append(f"- {player_name}{captain_status} [{position}]")
-        
-        bank = user_info.get('last_deadline_bank', 1000) / 10.0
-        free_transfers = team_picks.get('entry_history', {}).get('event_transfers', 1)
-        
-        team_summary = [f"\n--- Team Info ---", f"Bank: £{bank}m", f"Free Transfers: {free_transfers}"]
-        return "\n".join(formatted_team + team_summary)
-
-    except requests.exceptions.HTTPError as http_err:
-        if http_err.response.status_code == 404:
-            return {"error": "Team Not Found. Please ensure your User ID is correct and you have saved your initial squad on the FPL website."}
-        return {"error": f"An HTTP error occurred: {http_err}"}
+            return {
+                "players": "\n".join(players_info),
+                "fixtures": "\n".join(fixtures_info),
+                "current_gameweek": current_gameweek,
+                "current_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
     except Exception as e:
-        return {"error": f"An unexpected error occurred: {e}"}
+        return {"error": f"An error occurred while fetching FPL data: {e}"}
 
 # --- AI Interaction ---
-def ask_ai_assistant(api_key, history):
-    """Sends a conversation history to the Google Gemini API."""
-    if not api_key:
-        return "Error: Google API Key was not provided or found."
 
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL_NAME}:generateContent?key={api_key}"
-    
-    headers = {"Content-Type": "application/json"}
-    payload = {"contents": history}
-    data = json.dumps(payload).encode("utf-8")
-    
-    req = urllib.request.Request(api_url, data=data, headers=headers)
-    context = ssl._create_unverified_context()
-
+async def get_ai_response_with_image(prompt, image_data_url):
+    # ... (rest of the function remains the same)
+    if AI_PROVIDER != "GEMINI":
+        return "Error: Image analysis is only supported with the GEMINI provider in this configuration."
+    if not GEMINI_API_KEY:
+        return "Error: GEMINI_API_KEY environment variable not set."
     try:
-        with urllib.request.urlopen(req, context=context) as response:
-            response_body = response.read().decode("utf-8")
-            json_response = json.loads(response_body)
-            
-            if "candidates" in json_response and len(json_response["candidates"]) > 0:
-                content = json_response["candidates"][0].get("content", {})
-                if "parts" in content and len(content["parts"]) > 0:
-                    return content["parts"][0].get("text", "").strip()
-            return "Error: Received an unexpected or empty response from the AI assistant."
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        header, encoded = image_data_url.split(",", 1)
+        image_data = base64.b64decode(encoded)
+        image = Image.open(BytesIO(image_data))
+        content = [prompt, image]
+        response = await model.generate_content_async(content)
+        return response.text
     except Exception as e:
-        return f"An error occurred while contacting the AI assistant: {e}"
+        return f"Error with Gemini: {e}"
 
-# --- User Configuration ---
-def load_user_config():
-    """Loads user config from a file."""
-    if CONFIG_FILE.exists():
-        with open(CONFIG_FILE, 'r') as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                return {}
-    return {}
 
-def save_user_config(config):
-    """Saves user config to a file."""
-    with open(CONFIG_FILE, 'w') as f:
-        json.dump(config, f)
-
-# --- Chatbot Core Logic ---
-def get_chatbot_response(api_key, user_id, user_query, history):
-    """Orchestrates the AI response logic."""
-    router_history = [
-        {"role": "user", "parts": [{"text": "You are an AI assistant that determines if a user's request requires accessing their Fantasy Premier League (FPL) team data. Answer with only 'yes' or 'no'."}]},
-        {"role": "model", "parts": [{"text": "Okay, I understand."}]},
-        {"role": "user", "parts": [{"text": f"User Query: '{user_query}'"}]}
-    ]
-    decision = ask_ai_assistant(api_key, router_history).lower().strip()
-
-    if 'yes' in decision:
-        team_data = get_fpl_team_data(user_id, {'User-Agent': 'Mozilla/5.0'})
-        if isinstance(team_data, dict) and "error" in team_data:
-            return f"Error: {team_data['error']}"
-        
-        responder_history = [
-            {"role": "user", "parts": [{"text": "You are an expert FPL assistant. Your responses must be in British English. Analyse the provided team data to answer the user's questions."}]},
-            {"role": "model", "parts": [{"text": "Understood."}]},
-            {"role": "user", "parts": [{"text": f"Here is the user's team data:\n{team_data}"}]},
-            {"role": "model", "parts": [{"text": "Thank you. I have the team data."}]}
-        ] + history
-        return ask_ai_assistant(api_key, responder_history)
+async def get_ai_response_text_only(prompt):
+    # ... (rest of the function remains the same)
+    if AI_PROVIDER == "OPENAI":
+        if not OPENAI_API_KEY:
+            return "Error: OPENAI_API_KEY environment variable not set."
+        try:
+            client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+            response = await client.chat.completions.create(
+                model="gpt-4o", messages=[{"role": "user", "content": prompt}], temperature=0.3)
+            return response.choices[0].message.content
+        except AuthenticationError:
+            return "Error: Invalid OpenAI API key."
+        except Exception as e:
+            return f"Error with OpenAI: {e}"
+    elif AI_PROVIDER == "GEMINI":
+        if not GEMINI_API_KEY:
+            return "Error: GEMINI_API_KEY environment variable not set."
+        try:
+            genai.configure(api_key=GEMINI_API_KEY)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = await model.generate_content_async(prompt)
+            return response.text
+        except Exception as e:
+            return f"Error with Gemini: {e}"
     else:
-        conversational_history = [
-            {"role": "user", "parts": [{"text": "You are a friendly and helpful FPL assistant. Your responses must be in British English. Answer conversationally."}]},
-            {"role": "model", "parts": [{"text": "Right then."}]}
-        ] + history
-        return ask_ai_assistant(api_key, conversational_history)
+        return "Error: Invalid AI_PROVIDER configured."
+
+# --- Main Chatbot Logic ---
+
+async def get_chatbot_advice(user_query, image_data_url=None):
+    """
+    Main function to get FPL advice, now with live data context.
+    """
+    fpl_data = await get_fpl_data()
+    if "error" in fpl_data:
+        return fpl_data["error"]
+
+    # Construct the data context string
+    data_context = (
+        f"Current Date: {fpl_data['current_date']}\n"
+        f"Current Gameweek: {fpl_data['current_gameweek']}\n\n"
+        f"**Available Players & Stats:**\n{fpl_data['players']}\n\n"
+        f"**Upcoming Fixtures:**\n{fpl_data['fixtures']}"
+    )
+
+    if image_data_url:
+        prompt = f"""
+        You are a friendly and knowledgeable FPL AI assistant. Your tone is conversational and you use British English.
+
+        **FPL Data Context:**
+        {data_context}
+
+        **User's Request:**
+        The user has uploaded a screenshot of their team and asked a question.
+
+        **IMPORTANT INSTRUCTIONS FOR IMAGE ANALYSIS:**
+        1.  Identify the players in the user's squad from the screenshot.
+        2.  A player's actual team is indicated by their jersey. The team name *underneath* a player is their **next opponent**. Do not confuse them.
+        3.  Use the provided FPL Data Context to inform your response.
+
+        After correctly identifying the squad and considering the live data, provide a helpful and conversational response to the user's question.
+
+        User's question: "{user_query}"
+        """
+        return await get_ai_response_with_image(prompt, image_data_url)
+    else:
+        prompt = f"""
+        You are a friendly and knowledgeable FPL AI assistant. Your tone is conversational and you use British English.
+
+        **FPL Data Context:**
+        {data_context}
+
+        **User's Request:**
+        The user has asked a general question about FPL. Use the provided FPL Data Context to give the most accurate and up-to-date answer possible.
+
+        User's question: "{user_query}"
+        """
+        return await get_ai_response_text_only(prompt)

@@ -1,0 +1,6 @@
+flask
+aiohttp
+openai
+google-generativeai
+Pillow
+fpl

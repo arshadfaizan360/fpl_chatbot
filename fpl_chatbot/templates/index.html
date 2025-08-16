@@ -1,0 +1,156 @@
+<!-- fpl_chatbot/templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FPL AI Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+        }
+        #chat-container::-webkit-scrollbar { width: 8px; }
+        #chat-container::-webkit-scrollbar-track { background: #2d3748; }
+        #chat-container::-webkit-scrollbar-thumb {
+            background-color: #4a5568;
+            border-radius: 20px;
+            border: 3px solid #2d3748;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center justify-center h-screen p-4">
+
+    <div class="w-full max-w-2xl h-full flex flex-col bg-gray-800 rounded-lg shadow-xl">
+        <div class="p-4 border-b border-gray-700">
+            <h1 class="text-2xl font-bold text-center text-green-400">FPL AI Assistant</h1>
+        </div>
+
+        <div id="chat-container" class="flex-1 p-4 overflow-y-auto">
+            <div class="flex justify-start mb-4">
+                <div class="bg-purple-600 rounded-lg px-4 py-2 max-w-xs lg:max-w-md">
+                    <p class="text-sm">Alright? I'm your FPL AI Assistant. Ask me a general question, or upload a screenshot of your team for specific advice.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-4 border-t border-gray-700 space-y-4">
+            <div id="image-preview-container" class="hidden relative w-48 h-24 border-2 border-dashed border-gray-600 rounded-lg flex items-center justify-center">
+                <img id="image-preview" class="max-w-full max-h-full rounded-md" />
+                <button id="remove-image" class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full h-6 w-6 flex items-center justify-center font-bold">&times;</button>
+            </div>
+             <div class="flex">
+                <label for="file-upload" class="cursor-pointer bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-l-lg">
+                    Attach
+                </label>
+                <input id="file-upload" type="file" class="hidden" accept="image/*">
+                <input type="text" id="message-input" placeholder="Ask a question..." class="w-full bg-gray-700 text-white px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-400">
+                <button id="send-button" class="bg-green-500 hover:bg-green-600 text-gray-900 font-bold py-2 px-4 rounded-r-lg">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById('chat-container');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const fileUpload = document.getElementById('file-upload');
+        const imagePreviewContainer = document.getElementById('image-preview-container');
+        const imagePreview = document.getElementById('image-preview');
+        const removeImageBtn = document.getElementById('remove-image');
+
+        let imageDataUrl = null;
+
+        fileUpload.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    imageDataUrl = e.target.result;
+                    imagePreview.src = imageDataUrl;
+                    imagePreviewContainer.classList.remove('hidden');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        removeImageBtn.addEventListener('click', () => {
+            imageDataUrl = null;
+            fileUpload.value = ''; // Reset file input
+            imagePreviewContainer.classList.add('hidden');
+        });
+
+        const addMessage = (author, text) => {
+            const messageWrapper = document.createElement('div');
+            messageWrapper.classList.add('flex', 'mb-4', author === 'user' ? 'justify-end' : 'justify-start');
+            
+            const messageBubble = document.createElement('div');
+            messageBubble.classList.add('rounded-lg', 'px-4', 'py-2', 'max-w-xs', 'lg:max-w-md');
+            if (author === 'user') {
+                messageBubble.classList.add('bg-green-500', 'text-gray-900');
+            } else {
+                messageBubble.classList.add('bg-purple-600');
+            }
+            
+            const messageText = document.createElement('p');
+            messageText.classList.add('text-sm');
+            messageText.innerText = text;
+
+            messageBubble.appendChild(messageText);
+            messageWrapper.appendChild(messageBubble);
+            chatContainer.appendChild(messageWrapper);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        };
+
+        const handleSend = async () => {
+            const message = messageInput.value.trim();
+            if (!message) {
+                addMessage('ai', 'Please type a question first!');
+                return;
+            }
+
+            addMessage('user', message);
+            messageInput.value = '';
+            
+            addMessage('ai', 'Thinking...');
+            sendButton.disabled = true;
+
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        message: message,
+                        image: imageDataUrl 
+                    })
+                });
+
+                chatContainer.removeChild(chatContainer.lastChild); // Remove "Thinking..."
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Network response was not ok');
+                }
+
+                const data = await response.json();
+                addMessage('ai', data.response);
+
+            } catch (error) {
+                console.error('Error:', error);
+                if (chatContainer.lastChild.innerText.includes('Thinking...')) {
+                    chatContainer.removeChild(chatContainer.lastChild);
+                }
+                addMessage('ai', `Sorry, something went wrong. Please try again.`);
+            } finally {
+                sendButton.disabled = false;
+            }
+        };
+
+        sendButton.addEventListener('click', handleSend);
+        messageInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') handleSend();
+        });
+    </script>
+</body>
+</html>
