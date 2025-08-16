@@ -1,7 +1,0 @@
-flask
-aiohttp
-openai
-google-generativeai
-Pillow
-fpl
-gunicorn
