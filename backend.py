@@ -7,6 +7,7 @@ from io import BytesIO
 from PIL import Image
 import aiohttp
 from datetime import datetime
+import asyncio
 
 # --- Configuration ---
 
@@ -21,56 +22,63 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 async def get_fpl_data():
     """
-    Fetches comprehensive live data directly from the FPL API.
+    Fetches comprehensive live data directly from the FPL API with retry logic.
     """
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36"
     }
-    try:
-        # Create a TCPConnector with SSL verification disabled to bypass
-        # CERTIFICATE_VERIFY_FAILED errors in certain environments.
-        connector = aiohttp.TCPConnector(ssl=False)
-        async with aiohttp.ClientSession(connector=connector, headers=headers) as session:
-            # Fetch bootstrap data directly
-            async with session.get("https://fantasy.premierleague.com/api/bootstrap-static/") as response:
-                response.raise_for_status()
-                bootstrap_data = await response.json()
+    
+    # Create a TCPConnector with SSL verification disabled.
+    connector = aiohttp.TCPConnector(ssl=False)
+    
+    async with aiohttp.ClientSession(connector=connector, headers=headers) as session:
+        for attempt in range(3): # Retry up to 3 times
+            try:
+                # Fetch bootstrap data directly
+                async with session.get("https://fantasy.premierleague.com/api/bootstrap-static/") as response:
+                    response.raise_for_status()
+                    bootstrap_data = await response.json()
 
-            # Fetch fixtures data directly
-            async with session.get("https://fantasy.premierleague.com/api/fixtures/") as response:
-                response.raise_for_status()
-                fixtures = await response.json()
+                # Fetch fixtures data directly
+                async with session.get("https://fantasy.premierleague.com/api/fixtures/") as response:
+                    response.raise_for_status()
+                    fixtures = await response.json()
 
-            # Format players data
-            players_info = []
-            for player in bootstrap_data["elements"]:
-                team_name = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == player["team"]), "N/A")
-                position = bootstrap_data["element_types"][player["element_type"] - 1]["singular_name_short"]
-                players_info.append(
-                    f"- {player['web_name']} ({team_name}, {position}, £{player['now_cost']/10.0}m) - "
-                    f"Points: {player['total_points']}, Form: {player['form']}, Status: {player['status']}"
-                )
-            
-            # Format fixtures data
-            fixtures_info = []
-            for fixture in fixtures:
-                home_team = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == fixture["team_h"]), "N/A")
-                away_team = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == fixture["team_a"]), "N/A")
-                fixtures_info.append(
-                    f"- GW {fixture['event']}: {home_team} vs {away_team}"
-                )
+                # Format players data
+                players_info = []
+                for player in bootstrap_data["elements"]:
+                    team_name = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == player["team"]), "N/A")
+                    position = bootstrap_data["element_types"][player["element_type"] - 1]["singular_name_short"]
+                    players_info.append(
+                        f"- {player['web_name']} ({team_name}, {position}, £{player['now_cost']/10.0}m) - "
+                        f"Points: {player['total_points']}, Form: {player['form']}, Status: {player['status']}"
+                    )
+                
+                # Format fixtures data
+                fixtures_info = []
+                for fixture in fixtures:
+                    home_team = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == fixture["team_h"]), "N/A")
+                    away_team = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == fixture["team_a"]), "N/A")
+                    fixtures_info.append(
+                        f"- GW {fixture['event']}: {home_team} vs {away_team}"
+                    )
 
-            # Get current gameweek
-            current_gameweek = next((event["id"] for event in bootstrap_data["events"] if event["is_current"]), "N/A")
+                # Get current gameweek
+                current_gameweek = next((event["id"] for event in bootstrap_data["events"] if event["is_current"]), "N/A")
 
-            return {
-                "players": "\n".join(players_info),
-                "fixtures": "\n".join(fixtures_info),
-                "current_gameweek": current_gameweek,
-                "current_date": datetime.now().strftime("%Y-m-%d %H:%M:%S")
-            }
-    except Exception as e:
-        return {"error": f"An error occurred while fetching FPL data: {e}"}
+                return {
+                    "players": "\n".join(players_info),
+                    "fixtures": "\n".join(fixtures_info),
+                    "current_gameweek": current_gameweek,
+                    "current_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+            except aiohttp.ClientResponseError as e:
+                if e.status == 403 and attempt < 2:
+                    await asyncio.sleep(1) # Wait for 1 second before retrying
+                    continue # Go to the next attempt
+                return {"error": f"An error occurred while fetching FPL data: {e}"}
+            except Exception as e:
+                return {"error": f"An unexpected error occurred: {e}"}
 
 # --- AI Interaction ---
 
