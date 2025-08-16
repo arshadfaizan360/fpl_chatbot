@@ -63,17 +63,19 @@ async def get_fpl_data():
                 team_name = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == player["team"]), "N/A")
                 position = bootstrap_data["element_types"][player["element_type"] - 1]["singular_name_short"]
 
-                # Check if live points are available
+                # Always include both season and live points
+                season_points = player["total_points"]
+
                 live_points = None
                 if live_data and "elements" in live_data and str(player["id"]) in live_data["elements"]:
                     live_points = live_data["elements"][str(player["id"])]["stats"]["total_points"]
 
                 players_info.append(
                     f"- {player['web_name']} ({team_name}, {position}, £{player['now_cost']/10.0}m) - "
-                    f"Season Points: {player['total_points']}, "
+                    f"Season Points: {season_points}, "
+                    f"Live Points: {live_points if live_points is not None else 'N/A'}, "
                     f"Form: {player['form']}, "
                     f"Status: {player['status']}"
-                    + (f", Live Points: {live_points}" if live_points is not None else "")
                 )
 
             # Format fixtures data (upcoming season fixtures)
@@ -83,13 +85,23 @@ async def get_fpl_data():
                 away_team = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == fixture["team_a"]), "N/A")
                 fixtures_info.append(f"- GW {fixture['event']}: {home_team} vs {away_team}")
 
-            # Format current GW fixtures (with live data if available)
+            # Format current GW fixtures with consistent live scores
             fixtures_current_info = []
             for fixture in fixtures_current:
                 home_team = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == fixture["team_h"]), "N/A")
                 away_team = next((t["name"] for t in bootstrap_data["teams"] if t["id"] == fixture["team_a"]), "N/A")
-                score = f"{fixture['team_h_score']} - {fixture['team_a_score']}" if fixture["started"] else "Not started"
-                fixtures_current_info.append(f"- GW {fixture['event']}: {home_team} {score} {away_team}")
+
+                # Determine live score or placeholder
+                home_score = fixture.get("team_h_score")
+                away_score = fixture.get("team_a_score")
+                if home_score is not None and away_score is not None:
+                    score_str = f"{home_score} - {away_score}"
+                else:
+                    score_str = "Not started"
+
+                fixtures_current_info.append(
+                    f"- GW {fixture['event']}: {home_team} {score_str} {away_team}"
+                )
 
             # Get current gameweek
             current_gameweek = next((event["id"] for event in bootstrap_data["events"] if event["is_current"]), "N/A")
@@ -157,23 +169,25 @@ async def get_ai_response_text_only(prompt):
 
 async def get_chatbot_advice(user_query, image_data_url=None):
     """
-    Main function to get FPL advice, now with live data context.
+    Main function to get FPL advice, now with full live and season data context.
     """
     fpl_data = await get_fpl_data()
     if "error" in fpl_data:
         return fpl_data["error"]
 
-    # Construct the data context string
+    # --- Build context for the AI ---
     data_context = (
         f"Current Date: {fpl_data['current_date']}\n"
         f"Current Gameweek: {fpl_data['current_gameweek']}\n\n"
-        f"**Available Players & Stats:**\n{fpl_data['players']}\n\n"
-        f"**Upcoming Fixtures:**\n{fpl_data['fixtures']}"
+        f"**Available Players & Stats (Season + Live):**\n{fpl_data['players']}\n\n"
+        f"**Upcoming Fixtures (Season):**\n{fpl_data['fixtures']}\n\n"
+        f"**Current Gameweek Fixtures (Live Scores if available):**\n{fpl_data['fixtures_current']}"
     )
 
     if image_data_url:
         prompt = f"""
-        You are a friendly and knowledgeable FPL AI assistant. Your tone is conversational and you use British English.
+        You are a friendly and knowledgeable FPL AI assistant. 
+        Your tone is conversational and you use British English.
 
         **FPL Data Context:**
         {data_context}
@@ -182,24 +196,33 @@ async def get_chatbot_advice(user_query, image_data_url=None):
         The user has uploaded a screenshot of their team and asked a question.
 
         **IMPORTANT INSTRUCTIONS FOR IMAGE ANALYSIS:**
-        1.  Identify the players in the user's squad from the screenshot.
-        2.  A player's actual team is indicated by their jersey. The team name *underneath* a player is their **next opponent**. Do not confuse them.
-        3.  Use the provided FPL Data Context to inform your response.
+        1. Identify the players in the user's squad from the screenshot.
+        2. A player's actual team is shown by their jersey. 
+           The team name underneath them is their **next opponent**. Do not confuse the two.
+        3. Use both **season stats** and **live points / live scores** to inform your advice.
+        4. When recommending transfers, captains, or lineup changes, consider both historical performance (season points, form) and current matchday performance (live points, live scores) where available.
 
-        After correctly identifying the squad and considering the live data, provide a helpful and conversational response to the user's question.
+        Provide a helpful, conversational response to the user's question.
 
         User's question: "{user_query}"
         """
         return await get_ai_response_with_image(prompt, image_data_url)
+
     else:
         prompt = f"""
-        You are a friendly and knowledgeable FPL AI assistant. Your tone is conversational and you use British English.
+        You are a friendly and knowledgeable FPL AI assistant. 
+        Your tone is conversational and you use British English.
 
         **FPL Data Context:**
         {data_context}
 
         **User's Request:**
-        The user has asked a general question about FPL. Use the provided FPL Data Context to give the most accurate and up-to-date answer possible.
+        The user has asked a general question about FPL.
+
+        **IMPORTANT INSTRUCTIONS:**
+        1. Use both **season stats** and **live points / live scores** when reasoning.
+        2. Give advice considering both historical performance (season points, form) and current matchday performance (live points, live scores) where available.
+        3. Be conversational, clear, and precise. Use British English.
 
         User's question: "{user_query}"
         """
