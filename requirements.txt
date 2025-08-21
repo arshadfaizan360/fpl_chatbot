@@ -6,3 +6,4 @@ Pillow
 fpl
 gunicorn
 python-dotenv
+uvicorn
