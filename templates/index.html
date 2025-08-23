@@ -62,17 +62,56 @@
 
         let imageDataUrl = null;
 
-        fileUpload.addEventListener('change', (event) => {
+        // Client-side image compression: resize to max dimension and convert to JPEG to reduce
+        // base64 payload size. Tries progressively lower quality if needed.
+        fileUpload.addEventListener('change', async (event) => {
             const file = event.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    imageDataUrl = e.target.result;
-                    imagePreview.src = imageDataUrl;
-                    imagePreviewContainer.classList.remove('hidden');
-                };
-                reader.readAsDataURL(file);
-            }
+            if (!file) return;
+
+            // helper to convert a canvas to dataURL with a given quality
+            const canvasToDataUrl = (canvas, quality) => canvas.toDataURL('image/jpeg', quality);
+
+            const img = new Image();
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+
+            img.onload = async () => {
+                const MAX_DIM = 1200; // max width/height in px
+                let { width, height } = img;
+                if (width > MAX_DIM || height > MAX_DIM) {
+                    const scale = Math.min(MAX_DIM / width, MAX_DIM / height);
+                    width = Math.round(width * scale);
+                    height = Math.round(height * scale);
+                }
+
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // try decreasing quality until under a target size (~400KB) or min quality reached
+                const TARGET_BYTES = 400 * 1024;
+                let quality = 0.9;
+                let dataUrl = canvasToDataUrl(canvas, quality);
+                const dataUrlSize = (d) => Math.ceil((d.length - d.indexOf(',') - 1) * 3 / 4);
+
+                while (dataUrlSize(dataUrl) > TARGET_BYTES && quality > 0.3) {
+                    quality -= 0.15;
+                    dataUrl = canvasToDataUrl(canvas, quality);
+                }
+
+                imageDataUrl = dataUrl;
+                imagePreview.src = imageDataUrl;
+                imagePreviewContainer.classList.remove('hidden');
+            };
+
+            img.onerror = () => {
+                console.error('Could not load image for compression.');
+            };
         });
 
         removeImageBtn.addEventListener('click', () => {
