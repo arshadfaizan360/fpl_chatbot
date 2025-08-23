@@ -1,36 +1,34 @@
-<!-- fpl_chatbot/templates/index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>FPL AI Assistant</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body {
-            font-family: 'Roboto', sans-serif;
-        }
+        body { font-family: 'Roboto', sans-serif; }
         #chat-container::-webkit-scrollbar { width: 8px; }
         #chat-container::-webkit-scrollbar-track { background: #2d3748; }
-        #chat-container::-webkit-scrollbar-thumb {
-            background-color: #4a5568;
-            border-radius: 20px;
-            border: 3px solid #2d3748;
-        }
+        #chat-container::-webkit-scrollbar-thumb { background-color: #4a5568; border-radius: 20px; border: 3px solid #2d3748; }
+
+        /* Typing indicator */
+        .typing-bubble { display: inline-flex; align-items: center; gap: 8px; }
+        .typing-dots { display: inline-flex; gap: 6px; }
+        .typing-dots span { width: 7px; height: 7px; background: #e9d5ff; border-radius: 50%; opacity: 0.35; transform: translateY(0); animation: typing 1s infinite; }
+        .typing-dots span:nth-child(2) { animation-delay: 0.12s; }
+        .typing-dots span:nth-child(3) { animation-delay: 0.24s; }
+        @keyframes typing { 0% { opacity: 0.3; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-6px); } 100% { opacity: 0.3; transform: translateY(0); } }
     </style>
 </head>
 <body class="bg-gray-900 text-white flex flex-col items-center justify-center h-screen p-4">
-
     <div class="w-full max-w-2xl h-full flex flex-col bg-gray-800 rounded-lg shadow-xl">
-        <div class="p-4 border-b border-gray-700">
-            <h1 class="text-2xl font-bold text-center text-green-400">FPL AI Assistant</h1>
-        </div>
+        <div class="p-4 border-b border-gray-700"><h1 class="text-2xl font-bold text-center text-green-400">FPL AI Assistant</h1></div>
 
         <div id="chat-container" class="flex-1 p-4 overflow-y-auto">
             <div class="flex justify-start mb-4">
                 <div class="bg-purple-600 rounded-lg px-4 py-2 max-w-xs lg:max-w-md">
-                    <p class="text-sm">Alright? I'm your FPL AI Assistant. Ask me a general question, or upload a screenshot of your team for specific advice.</p>
+                    <p class="text-sm">Alright? I'm your FPL AI Assistant. Ask me a question or upload a screenshot of your team.</p>
                 </div>
             </div>
         </div>
@@ -40,10 +38,9 @@
                 <img id="image-preview" class="max-w-full max-h-full rounded-md" />
                 <button id="remove-image" class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full h-6 w-6 flex items-center justify-center font-bold">&times;</button>
             </div>
-             <div class="flex">
-                <label for="file-upload" class="cursor-pointer bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-l-lg">
-                    Attach
-                </label>
+
+            <div class="flex">
+                <label for="file-upload" class="cursor-pointer bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-l-lg">Attach</label>
                 <input id="file-upload" type="file" class="hidden" accept="image/*">
                 <input type="text" id="message-input" placeholder="Ask a question..." class="w-full bg-gray-700 text-white px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-400">
                 <button id="send-button" class="bg-green-500 hover:bg-green-600 text-gray-900 font-bold py-2 px-4 rounded-r-lg">Send</button>
@@ -62,142 +59,103 @@
 
         let imageDataUrl = null;
 
-        // Client-side image compression: resize to max dimension and convert to JPEG to reduce
-        // base64 payload size. Tries progressively lower quality if needed.
+        // Image handling (resize + quality)
         fileUpload.addEventListener('change', async (event) => {
-            const file = event.target.files[0];
-            if (!file) return;
-
-            // helper to convert a canvas to dataURL with a given quality
+            const file = event.target.files[0]; if (!file) return;
             const canvasToDataUrl = (canvas, quality) => canvas.toDataURL('image/jpeg', quality);
-
-            const img = new Image();
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                img.src = e.target.result;
-            };
+            const img = new Image(); const reader = new FileReader();
+            reader.onload = (e) => { img.src = e.target.result; };
             reader.readAsDataURL(file);
 
-            img.onload = async () => {
-                const MAX_DIM = 1200; // max width/height in px
-                let { width, height } = img;
-                if (width > MAX_DIM || height > MAX_DIM) {
-                    const scale = Math.min(MAX_DIM / width, MAX_DIM / height);
-                    width = Math.round(width * scale);
-                    height = Math.round(height * scale);
-                }
-
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, width, height);
-
-                // try decreasing quality until under a target size (~400KB) or min quality reached
-                const TARGET_BYTES = 400 * 1024;
-                let quality = 0.9;
-                let dataUrl = canvasToDataUrl(canvas, quality);
-                const dataUrlSize = (d) => Math.ceil((d.length - d.indexOf(',') - 1) * 3 / 4);
-
-                while (dataUrlSize(dataUrl) > TARGET_BYTES && quality > 0.3) {
-                    quality -= 0.15;
-                    dataUrl = canvasToDataUrl(canvas, quality);
-                }
-
-                imageDataUrl = dataUrl;
-                imagePreview.src = imageDataUrl;
-                imagePreviewContainer.classList.remove('hidden');
+            img.onload = () => {
+                const MAX_DIM = 1200; let { width, height } = img;
+                if (width > MAX_DIM || height > MAX_DIM) { const scale = Math.min(MAX_DIM/width, MAX_DIM/height); width = Math.round(width*scale); height = Math.round(height*scale); }
+                const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height; const ctx = canvas.getContext('2d'); ctx.drawImage(img,0,0,width,height);
+                const TARGET_BYTES = 400*1024; let quality = 0.9; let dataUrl = canvasToDataUrl(canvas, quality);
+                const dataUrlSize = (d) => Math.ceil((d.length - d.indexOf(',') - 1) * 3/4);
+                while (dataUrlSize(dataUrl) > TARGET_BYTES && quality > 0.3) { quality -= 0.15; dataUrl = canvasToDataUrl(canvas, quality); }
+                imageDataUrl = dataUrl; imagePreview.src = imageDataUrl; imagePreviewContainer.classList.remove('hidden');
             };
-
-            img.onerror = () => {
-                console.error('Could not load image for compression.');
-            };
+            img.onerror = () => console.error('Could not load image for compression.');
         });
 
-        removeImageBtn.addEventListener('click', () => {
-            imageDataUrl = null;
-            fileUpload.value = ''; // Reset file input
-            imagePreviewContainer.classList.add('hidden');
-        });
+        removeImageBtn.addEventListener('click', () => { imageDataUrl = null; fileUpload.value = ''; imagePreviewContainer.classList.add('hidden'); });
 
         const addMessage = (author, text) => {
             const messageWrapper = document.createElement('div');
-            messageWrapper.classList.add('flex', 'mb-4', author === 'user' ? 'justify-end' : 'justify-start');
-            
-            const messageBubble = document.createElement('div');
-            messageBubble.classList.add('rounded-lg', 'px-4', 'py-2', 'max-w-xs', 'lg:max-w-md');
-            if (author === 'user') {
-                messageBubble.classList.add('bg-green-500', 'text-gray-900');
-            } else {
-                messageBubble.classList.add('bg-purple-600');
-            }
-            
-            const messageText = document.createElement('p');
-            messageText.classList.add('text-sm');
-            messageText.innerText = text;
+            messageWrapper.classList.add('flex','mb-4', author==='user' ? 'justify-end' : 'justify-start');
+            const messageBubble = document.createElement('div'); messageBubble.classList.add('rounded-lg','px-4','py-2','max-w-xs','lg:max-w-md');
+            if (author==='user') messageBubble.classList.add('bg-green-500','text-gray-900'); else messageBubble.classList.add('bg-purple-600');
+            const messageText = document.createElement('p'); messageText.classList.add('text-sm'); messageText.innerText = text;
+            messageBubble.appendChild(messageText); messageWrapper.appendChild(messageBubble); chatContainer.appendChild(messageWrapper); chatContainer.scrollTop = chatContainer.scrollHeight;
+        };
 
-            messageBubble.appendChild(messageText);
-            messageWrapper.appendChild(messageBubble);
-            chatContainer.appendChild(messageWrapper);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
+        // Create typing indicator element
+        const createTypingIndicator = () => {
+            const wrapper = document.createElement('div'); wrapper.classList.add('flex','mb-4','justify-start');
+            const bubble = document.createElement('div'); bubble.classList.add('rounded-lg','px-4','py-2','max-w-xs','lg:max-w-md','bg-purple-600','typing-bubble');
+            const dots = document.createElement('div'); dots.classList.add('typing-dots'); dots.appendChild(document.createElement('span')); dots.appendChild(document.createElement('span')); dots.appendChild(document.createElement('span'));
+            bubble.appendChild(dots); wrapper.appendChild(bubble); chatContainer.appendChild(wrapper); chatContainer.scrollTop = chatContainer.scrollHeight; return wrapper;
         };
 
         const handleSend = async () => {
-            const message = messageInput.value.trim();
-            if (!message) {
-                addMessage('ai', 'Please type a question first!');
-                return;
-            }
-
-            addMessage('user', message);
-            messageInput.value = '';
-            
-            addMessage('ai', 'Thinking...');
-            sendButton.disabled = true;
+            const message = messageInput.value.trim(); if (!message) { addMessage('ai','Please type a question first!'); return; }
+            addMessage('user', message); messageInput.value = '';
+            const typingIndicator = createTypingIndicator(); sendButton.disabled = true;
 
             try {
-                // Ensure session id is sent so the backend can maintain conversation history
-                let sessionId = localStorage.getItem('fpl_session_id');
-                if (!sessionId) {
-                    sessionId = crypto.randomUUID();
-                    localStorage.setItem('fpl_session_id', sessionId);
-                }
+                let sessionId = localStorage.getItem('fpl_session_id'); if (!sessionId) { sessionId = crypto.randomUUID(); localStorage.setItem('fpl_session_id', sessionId); }
 
-                const response = await fetch('/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        message: message,
-                        image: imageDataUrl,
-                        session_id: sessionId
-                    })
+                // Try streaming endpoint first
+                const streamResp = await fetch('/chat/stream', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ message, image: imageDataUrl, session_id: sessionId })
                 });
 
-                chatContainer.removeChild(chatContainer.lastChild); // Remove "Thinking..."
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Network response was not ok');
+                if (!streamResp.ok) {
+                    // fallback to non-streaming /chat
+                    throw new Error('stream-unavailable');
                 }
 
-                const data = await response.json();
-                addMessage('ai', data.response);
-
-            } catch (error) {
-                console.error('Error:', error);
-                if (chatContainer.lastChild.innerText.includes('Thinking...')) {
-                    chatContainer.removeChild(chatContainer.lastChild);
+                // read stream (SSE-like data: JSON chunks)
+                const reader = streamResp.body.getReader(); const decoder = new TextDecoder('utf-8'); let buf = ''; let finalMessage = '';
+                while (true) {
+                    const { value, done } = await reader.read(); if (done) break; buf += decoder.decode(value, {stream: true});
+                    let idx;
+                    while ((idx = buf.indexOf('\n\n')) !== -1) {
+                        const raw = buf.slice(0, idx); buf = buf.slice(idx+2);
+                        const lines = raw.split(/\r?\n/).map(l => l.replace(/^data:\s?/, ''));
+                        const dataStr = lines.join('\n');
+                        try {
+                            const obj = JSON.parse(dataStr);
+                            if (obj.type === 'heartbeat') { /* keep showing typing */ }
+                            else if (obj.type === 'message') { finalMessage = obj.response; }
+                            else if (obj.type === 'error') { finalMessage = obj.error || 'Error from server'; }
+                        } catch (e) { /* ignore parse errors */ }
+                    }
                 }
-                addMessage('ai', `Sorry, something went wrong. Please try again.`);
-            } finally {
-                sendButton.disabled = false;
-            }
+
+                if (typingIndicator && typingIndicator.parentNode) typingIndicator.parentNode.removeChild(typingIndicator);
+                if (finalMessage) addMessage('ai', finalMessage); else addMessage('ai', 'No response received.');
+
+            } catch (err) {
+                // fallback non-streaming request
+                try {
+                    const sessionId = localStorage.getItem('fpl_session_id');
+                    const res = await fetch('/chat', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ message, image: imageDataUrl, session_id: sessionId }) });
+                    if (!res.ok) throw new Error('network');
+                    const data = await res.json();
+                    if (typingIndicator && typingIndicator.parentNode) typingIndicator.parentNode.removeChild(typingIndicator);
+                    addMessage('ai', data.response);
+                } catch (e) {
+                    if (typingIndicator && typingIndicator.parentNode) typingIndicator.parentNode.removeChild(typingIndicator);
+                    addMessage('ai','Sorry, something went wrong. Please try again.');
+                }
+            } finally { sendButton.disabled = false; }
         };
 
         sendButton.addEventListener('click', handleSend);
-        messageInput.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter') handleSend();
-        });
+        messageInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') handleSend(); });
     </script>
 </body>
 </html>

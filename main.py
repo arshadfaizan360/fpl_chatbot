@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import asyncio
@@ -83,6 +83,69 @@ async def chat(payload: dict):
     return JSONResponse({"response": response})
 
 
+@app.post('/chat/stream')
+async def chat_stream(request: Request):
+    """Stream periodic heartbeat events while waiting for the AI response, then send the final response.
+
+    The endpoint accepts the same JSON payload as /chat and returns a text/event-stream style
+    stream which the client can read incrementally. This implementation does not stream tokens from
+    the AI provider; it sends periodic heartbeats and then the complete final message when ready.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail='Invalid JSON payload.')
+
+    message = payload.get('message')
+    image_data_url = payload.get('image')
+    session_id = payload.get('session_id')
+
+    if not message:
+        raise HTTPException(status_code=400, detail='A message is required.')
+
+    async def event_generator():
+        # Start with an initial thinking event
+        try:
+            yield f"data: {JSONResponse({'type': 'heartbeat', 'message': 'thinking'}).body.decode()}\n\n"
+        except Exception:
+            # fallback simple text if JSONResponse didn't work as expected
+            yield "data: {\"type\": \"heartbeat\", \"message\": \"thinking\"}\n\n"
+
+        # Run the AI call in a background task and periodically send heartbeats
+        task = asyncio.create_task(
+            asyncio.wait_for(
+                get_chatbot_advice(message, image_data_url, session_id=session_id),
+                timeout=90,
+            )
+        )
+
+        try:
+            while not task.done():
+                # send simple heartbeat so client can show progress
+                yield "data: {\"type\": \"heartbeat\", \"message\": \"thinking\"}\n\n"
+                await asyncio.sleep(1)
+                # stop if client disconnected
+                if await request.is_disconnected():
+                    task.cancel()
+                    return
+
+            # task finished — get result or exception
+            try:
+                result = task.result()
+                payload_out = {"type": "message", "response": result}
+                yield f"data: {JSONResponse(payload_out).body.decode()}\n\n"
+            except asyncio.TimeoutError:
+                yield "data: {\"type\": \"error\", \"error\": \"AI provider timed out\"}\n\n"
+            except Exception as e:
+                err = str(e)
+                yield f"data: {{\"type\": \"error\", \"error\": {JSONResponse({ 'error': err }).body.decode()} }}\n\n"
+
+        except asyncio.CancelledError:
+            return
+
+    return StreamingResponse(event_generator(), media_type='text/event-stream')
+
+
 @app.get('/status')
 async def status():
     try:
@@ -90,6 +153,20 @@ async def status():
     except Exception:
         status = {"error": "could not retrieve key status"}
     return JSONResponse(status)
+
+
+@app.get('/debug', response_class=HTMLResponse)
+async def debug(request: Request):
+        """Simple debug page without JS/CSS to verify server rendering independent of templates."""
+        html = """
+        <html><head><title>Debug</title></head>
+        <body style='background: #fff; color: #000; font-family: Arial, sans-serif;'>
+            <h1>Debug page</h1>
+            <p>If you see this, the server is returning HTML correctly.</p>
+            <p>Now open the browser console (Cmd+Option+J on mac) and check for errors when loading <a href="/">/</a>.</p>
+        </body></html>
+        """
+        return HTMLResponse(content=html)
 
 
 if __name__ == '__main__':
