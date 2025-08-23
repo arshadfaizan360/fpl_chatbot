@@ -117,12 +117,20 @@
             sendButton.disabled = true;
 
             try {
+                // Ensure session id is sent so the backend can maintain conversation history
+                let sessionId = localStorage.getItem('fpl_session_id');
+                if (!sessionId) {
+                    sessionId = crypto.randomUUID();
+                    localStorage.setItem('fpl_session_id', sessionId);
+                }
+
                 const response = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         message: message,
-                        image: imageDataUrl 
+                        image: imageDataUrl,
+                        session_id: sessionId
                     })
                 });
 
