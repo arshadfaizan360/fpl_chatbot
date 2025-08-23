@@ -1,4 +1,3 @@
-flask[async]
 aiohttp
 openai
 google-generativeai
@@ -7,3 +6,5 @@ fpl
 gunicorn
 python-dotenv
 uvicorn
+fastapi
+jinja2
